@@ -72,19 +72,3 @@ module.exports = {
   sendProductAlert
 };
 ```
-
-5. **Press Ctrl+S** to save
-
----
-
-**Almost done! Tell me when you've created these 4 files and I'll give you the last 2!** 🎯
-
-Your structure should now look like:
-```
-product-finder-backend
-├── src
-│   ├── index.js ✅
-│   └── api
-│       ├── ebay.js ✅
-│       ├── aliexpress.js ✅
-│       └── emails.js ✅
