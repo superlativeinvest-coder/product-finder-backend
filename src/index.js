@@ -21,8 +21,6 @@ app.get('/', (req, res) => {
 
 app.post('/api/scan', async (req, res) => {
   try {
-    console.log('Scan requested');
-    
     const sampleProducts = [
       {
         name: 'Phone Case',
@@ -36,7 +34,7 @@ app.post('/api/scan', async (req, res) => {
         timestamp: new Date().toISOString()
       },
       {
-        name: 'LED Strip Lights',
+        name: 'LED Lights',
         category: 'Electronics',
         buyPrice: '5.99',
         sellPrice: '24.99',
@@ -51,12 +49,10 @@ app.post('/api/scan', async (req, res) => {
     res.json({ 
       success: true, 
       findings: sampleProducts,
-      count: sampleProducts.length,
-      timestamp: new Date().toISOString()
+      count: sampleProducts.length
     });
     
   } catch (error) {
-    console.error('Error:', error);
     res.status(500).json({ 
       error: error.message,
       success: false 
@@ -66,6 +62,5 @@ app.post('/api/scan', async (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
-```
