@@ -1,11 +1,9 @@
 const express = require('express');
 const cors = require('cors');
-const cron = require('node-cron');
 require('dotenv').config();
 
 const app = express();
 
-// Middleware
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'OPTIONS'],
@@ -13,7 +11,6 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Health check endpoint
 app.get('/', (req, res) => {
   res.json({ 
     status: 'running',
@@ -22,12 +19,10 @@ app.get('/', (req, res) => {
   });
 });
 
-// Simple test scan endpoint (no external dependencies for now)
 app.post('/api/scan', async (req, res) => {
   try {
-    console.log('Scan request received');
+    console.log('Scan requested');
     
-    // Return sample data for testing
     const sampleProducts = [
       {
         name: 'Phone Case',
@@ -61,7 +56,7 @@ app.post('/api/scan', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Scan error:', error);
+    console.error('Error:', error);
     res.status(500).json({ 
       error: error.message,
       success: false 
@@ -69,10 +64,8 @@ app.post('/api/scan', async (req, res) => {
   }
 });
 
-// Start server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`✅ API is ready to test!`);
 });
 ```
