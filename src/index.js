@@ -3,17 +3,15 @@ const cors = require('cors');
 const cron = require('node-cron');
 require('dotenv').config();
 
-const { scanProducts } = require('./services/scanner');
-const { initDatabase } = require('./db/database');
-
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type']
+}));
 app.use(express.json());
-
-// Initialize database
-initDatabase().catch(console.error);
 
 // Health check endpoint
 app.get('/', (req, res) => {
@@ -24,24 +22,44 @@ app.get('/', (req, res) => {
   });
 });
 
-// Manual scan endpoint
+// Simple test scan endpoint (no external dependencies for now)
 app.post('/api/scan', async (req, res) => {
   try {
-    const config = {
-      minProfit: parseFloat(req.body.minProfit || process.env.MIN_PROFIT || 10),
-      minMargin: parseFloat(req.body.minMargin || process.env.MIN_MARGIN || 25),
-      categories: req.body.categories || ['Electronics', 'Home & Garden', 'Fashion']
-    };
-
-    console.log('Starting manual scan with config:', config);
-    const findings = await scanProducts(config);
+    console.log('Scan request received');
+    
+    // Return sample data for testing
+    const sampleProducts = [
+      {
+        name: 'Phone Case',
+        category: 'Electronics',
+        buyPrice: '3.50',
+        sellPrice: '19.99',
+        profit: '12.45',
+        margin: '62.3',
+        competition: 'Low',
+        soldCount: 150,
+        timestamp: new Date().toISOString()
+      },
+      {
+        name: 'LED Strip Lights',
+        category: 'Electronics',
+        buyPrice: '5.99',
+        sellPrice: '24.99',
+        profit: '14.50',
+        margin: '58.0',
+        competition: 'Medium',
+        soldCount: 220,
+        timestamp: new Date().toISOString()
+      }
+    ];
     
     res.json({ 
       success: true, 
-      findings,
-      count: findings.length,
+      findings: sampleProducts,
+      count: sampleProducts.length,
       timestamp: new Date().toISOString()
     });
+    
   } catch (error) {
     console.error('Scan error:', error);
     res.status(500).json({ 
@@ -51,44 +69,10 @@ app.post('/api/scan', async (req, res) => {
   }
 });
 
-// Configure email alerts endpoint
-app.post('/api/alerts/configure', async (req, res) => {
-  try {
-    const { email, alertsEnabled, minAlertProfit, minAlertMargin } = req.body;
-    console.log('Alert configuration:', { email, alertsEnabled, minAlertProfit, minAlertMargin });
-    
-    res.json({ 
-      success: true, 
-      message: 'Alerts configured successfully' 
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Automated scanning
-const scanInterval = parseInt(process.env.SCAN_INTERVAL_HOURS || 6);
-cron.schedule(`0 */${scanInterval} * * *`, async () => {
-  console.log(`Running automated scan at ${new Date().toISOString()}`);
-  try {
-    const config = {
-      minProfit: parseFloat(process.env.MIN_PROFIT || 10),
-      minMargin: parseFloat(process.env.MIN_MARGIN || 25),
-      categories: ['Electronics', 'Home & Garden', 'Fashion', 'Sports', 'Beauty']
-    };
-    
-    const findings = await scanProducts(config);
-    console.log(`Automated scan complete. Found ${findings.length} products.`);
-  } catch (error) {
-    console.error('Automated scan error:', error);
-  }
-});
-
 // Start server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📊 Automated scans every ${scanInterval} hours`);
-  console.log(`💰 Min profit: $${process.env.MIN_PROFIT || 10}`);
-  console.log(`📈 Min margin: ${process.env.MIN_MARGIN || 25}%`);
+  console.log(`✅ API is ready to test!`);
 });
+```
