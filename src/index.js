@@ -127,7 +127,9 @@ class CacheManager {
 const rateLimiter = new RateLimiter();
 const cacheManager = new CacheManager();
 
-// eBay API Search Function
+// =====================================================
+// EBAY API SEARCH FUNCTION
+// =====================================================
 async function searchEbay(keyword) {
   try {
     const cachedData = cacheManager.get(keyword);
@@ -212,14 +214,30 @@ async function searchEbay(keyword) {
   }
 }
 
+// =====================================================
+// SUPPLIER PRICE ESTIMATOR
+// =====================================================
 function getSupplierPrice(keyword) {
   const estimatedPrices = {
+    // Electronics
     'phone': 5, 'case': 2, 'cable': 1.5, 'led': 3, 'light': 4,
     'speaker': 8, 'holder': 2, 'organizer': 3, 'mat': 5,
     'bottle': 3, 'band': 2, 'brush': 1.5, 'sunglasses': 3,
     'jewelry': 2, 'watch': 8, 'bluetooth': 6, 'charging': 2,
-    'ring': 1, 'clip': 0.80, 'mount': 3, 'eyelash': 3.5,
-    'makeup': 1.8, 'blender': 8.5, 'drawer': 2.8, 'resistance': 4.5
+    'ring': 1, 'clip': 0.80, 'mount': 3, 'stand': 2.5,
+    'wireless': 6, 'earbuds': 7, 'usb': 1.2,
+    
+    // Beauty
+    'eyelash': 3.5, 'makeup': 1.8, 'scrunchies': 0.5,
+    
+    // Fitness & Home
+    'blender': 8.5, 'drawer': 2.8, 'resistance': 4.5,
+    
+    // Gaming - NEW!
+    'ps5': 4, 'nintendo': 3, 'switch': 3, 'gaming': 5,
+    'controller': 3.5, 'headset': 8, 'grips': 1.5,
+    'console': 4, 'cooling': 3, 'dock': 4.5, 'vr': 5,
+    'mouse': 3, 'pad': 1.5, 'skin': 1.2, 'cover': 2
   };
 
   const lowerKeyword = keyword.toLowerCase();
@@ -231,6 +249,10 @@ function getSupplierPrice(keyword) {
   }
   return '5.00';
 }
+
+// =====================================================
+// API ROUTES
+// =====================================================
 
 app.get('/', (req, res) => {
   const stats = rateLimiter.getStats();
@@ -247,16 +269,36 @@ app.get('/', (req, res) => {
 app.post('/api/scan', async (req, res) => {
   try {
     const keywords = [
+      // Electronics
       'phone ring holder',
       'cable organizer clips', 
       'silicone phone case',
       'car phone mount',
+      'led strip lights',
+      'portable blender',
+      'wireless earbuds',
+      'phone stand',
+      'usb cable',
+      
+      // Beauty & Fashion
       'magnetic eyelashes',
       'reusable makeup remover pads',
-      'resistance bands set',
-      'led strip lights',
+      'makeup brush set',
+      'hair scrunchies',
+      
+      // Home & Living
       'drawer organizer',
-      'portable blender'
+      'resistance bands set',
+      
+      // Video Games & Consoles
+      'ps5 controller skin',
+      'nintendo switch case',
+      'gaming headset',
+      'controller grips',
+      'console cooling fan',
+      'game controller charging dock',
+      'vr headset cover',
+      'gaming mouse pad'
     ];
     
     const findings = [];
@@ -278,13 +320,26 @@ app.post('/api/scan', async (req, res) => {
         const profit = sellPrice - totalCosts;
         const margin = (profit / sellPrice) * 100;
         
-        if (profit >= 5 && margin >= 20) {
+        // LOWERED THRESHOLD: $2 profit, 12% margin
+        if (profit >= 2 && margin >= 12) {
           const competition = ebayData.soldCount > 300 ? 'High' : 
                             ebayData.soldCount > 100 ? 'Medium' : 'Low';
           
+          // Determine category
+          let category = 'Electronics';
+          if (keyword.includes('makeup') || keyword.includes('eyelash') || keyword.includes('scrunchies') || keyword.includes('brush')) {
+            category = 'Beauty & Fashion';
+          } else if (keyword.includes('drawer') || keyword.includes('organizer') || keyword.includes('resistance') || keyword.includes('band')) {
+            category = 'Home & Living';
+          } else if (keyword.includes('gaming') || keyword.includes('controller') || keyword.includes('console') || 
+                     keyword.includes('ps5') || keyword.includes('nintendo') || keyword.includes('switch') || 
+                     keyword.includes('vr') || keyword.includes('headset')) {
+            category = 'Video Games & Consoles';
+          }
+          
           findings.push({
             name: keyword.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
-            category: 'Electronics',
+            category: category,
             buyPrice: supplierPrice.toFixed(2),
             sellPrice: sellPrice.toFixed(2),
             profit: profit.toFixed(2),
@@ -320,6 +375,9 @@ app.post('/api/scan', async (req, res) => {
   }
 });
 
+// =====================================================
+// SERVER STARTUP
+// =====================================================
 const PORT = process.env.PORT || 3001;
 
 async function startServer() {
@@ -331,7 +389,8 @@ async function startServer() {
     console.log(`🚀 Port: ${PORT}`);
     console.log(`🔑 eBay: ${process.env.EBAY_APP_ID ? 'Connected' : 'Missing'}`);
     console.log(`⏱️  Rate Limit: 3s delay, 80/hour`);
-    console.log(`💾 Cache: 24 hours\n`);
+    console.log(`💾 Cache: 24 hours`);
+    console.log(`🎮 Categories: Electronics, Beauty, Home, Gaming\n`);
   });
 }
 
