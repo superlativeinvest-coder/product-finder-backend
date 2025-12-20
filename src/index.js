@@ -233,7 +233,7 @@ function getSupplierPrice(keyword) {
     // Fitness & Home
     'blender': 8.5, 'drawer': 2.8, 'resistance': 4.5,
     
-    // Gaming - NEW!
+    // Gaming
     'ps5': 4, 'nintendo': 3, 'switch': 3, 'gaming': 5,
     'controller': 3.5, 'headset': 8, 'grips': 1.5,
     'console': 4, 'cooling': 3, 'dock': 4.5, 'vr': 5,
@@ -258,7 +258,7 @@ app.get('/', (req, res) => {
   const stats = rateLimiter.getStats();
   res.json({ 
     status: 'running',
-    message: 'Product Finder API',
+    message: 'Product Finder API - DEBUG MODE',
     ebayConfigured: !!process.env.EBAY_APP_ID,
     rateLimiting: { enabled: true, hourlyUsage: stats.hourly },
     cache: { enabled: true, entries: Object.keys(cacheManager.cache).length },
@@ -302,7 +302,8 @@ app.post('/api/scan', async (req, res) => {
     ];
     
     const findings = [];
-    console.log('\n🔍 Scanning products...');
+    console.log('\n🔍 DEBUG MODE: Scanning products...');
+    console.log('📊 Showing ALL products with detailed profit calculations\n');
     const startTime = Date.now();
     
     for (const keyword of keywords) {
@@ -320,37 +321,47 @@ app.post('/api/scan', async (req, res) => {
         const profit = sellPrice - totalCosts;
         const margin = (profit / sellPrice) * 100;
         
-        // LOWERED THRESHOLD: $2 profit, 12% margin
-        if (profit >= 2 && margin >= 12) {
-          const competition = ebayData.soldCount > 300 ? 'High' : 
-                            ebayData.soldCount > 100 ? 'Medium' : 'Low';
-          
-          // Determine category
-          let category = 'Electronics';
-          if (keyword.includes('makeup') || keyword.includes('eyelash') || keyword.includes('scrunchies') || keyword.includes('brush')) {
-            category = 'Beauty & Fashion';
-          } else if (keyword.includes('drawer') || keyword.includes('organizer') || keyword.includes('resistance') || keyword.includes('band')) {
-            category = 'Home & Living';
-          } else if (keyword.includes('gaming') || keyword.includes('controller') || keyword.includes('console') || 
-                     keyword.includes('ps5') || keyword.includes('nintendo') || keyword.includes('switch') || 
-                     keyword.includes('vr') || keyword.includes('headset')) {
-            category = 'Video Games & Consoles';
-          }
-          
-          findings.push({
-            name: keyword.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
-            category: category,
-            buyPrice: supplierPrice.toFixed(2),
-            sellPrice: sellPrice.toFixed(2),
-            profit: profit.toFixed(2),
-            margin: margin.toFixed(1),
-            competition,
-            soldCount: ebayData.soldCount,
-            ebaySearchUrl: `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(keyword)}&LH_Sold=1&LH_Complete=1`,
-            aliexpressUrl: `https://www.aliexpress.com/wholesale?SearchText=${encodeURIComponent(keyword)}`,
-            timestamp: new Date().toISOString()
-          });
+        // DEBUG: Show detailed calculations
+        console.log(`   📦 "${keyword}"`);
+        console.log(`   💵 Sell Price: $${sellPrice}`);
+        console.log(`   💰 Costs: Supplier $${supplierPrice} + eBay Fee $${ebayFee.toFixed(2)} + Payment $${paymentFee.toFixed(2)} + Shipping $${shipping} = $${totalCosts.toFixed(2)}`);
+        console.log(`   📈 PROFIT: $${profit.toFixed(2)} | MARGIN: ${margin.toFixed(1)}%`);
+        console.log(`   ${profit >= 2 && margin >= 12 ? '✅ PASSES' : '❌ FAILS'} (Need: $2 profit + 12% margin)`);
+        console.log('');
+        
+        const competition = ebayData.soldCount > 300 ? 'High' : 
+                          ebayData.soldCount > 100 ? 'Medium' : 'Low';
+        
+        // Determine category
+        let category = 'Electronics';
+        if (keyword.includes('makeup') || keyword.includes('eyelash') || keyword.includes('scrunchies') || keyword.includes('brush')) {
+          category = 'Beauty & Fashion';
+        } else if (keyword.includes('drawer') || keyword.includes('organizer') || keyword.includes('resistance') || keyword.includes('band')) {
+          category = 'Home & Living';
+        } else if (keyword.includes('gaming') || keyword.includes('controller') || keyword.includes('console') || 
+                   keyword.includes('ps5') || keyword.includes('nintendo') || keyword.includes('switch') || 
+                   keyword.includes('vr') || keyword.includes('headset')) {
+          category = 'Video Games & Consoles';
         }
+        
+        const meetsThreshold = profit >= 2 && margin >= 12;
+        
+        // ADD ALL PRODUCTS (not just profitable ones)
+        findings.push({
+          name: keyword.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+          category: category,
+          buyPrice: supplierPrice.toFixed(2),
+          sellPrice: sellPrice.toFixed(2),
+          profit: profit.toFixed(2),
+          margin: margin.toFixed(1),
+          competition,
+          soldCount: ebayData.soldCount,
+          meetsThreshold: meetsThreshold ? '✅ Yes' : '❌ No',
+          ebaySearchUrl: `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(keyword)}&LH_Sold=1&LH_Complete=1`,
+          aliexpressUrl: `https://www.aliexpress.com/wholesale?SearchText=${encodeURIComponent(keyword)}`,
+          timestamp: new Date().toISOString()
+        });
+        
       } catch (error) {
         console.error(`   ❌ ${keyword}: ${error.message}`);
       }
@@ -358,14 +369,28 @@ app.post('/api/scan', async (req, res) => {
     
     await cacheManager.save();
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`\n✅ Done! Found ${findings.length} products (${duration}s)\n`);
+    
+    const profitable = findings.filter(f => f.meetsThreshold === '✅ Yes').length;
+    const unprofitable = findings.length - profitable;
+    
+    console.log('\n═══════════════════════════════════════════');
+    console.log(`✅ SCAN COMPLETE - DEBUG MODE`);
+    console.log(`═══════════════════════════════════════════`);
+    console.log(`📊 Total Products Found: ${findings.length}`);
+    console.log(`✅ Profitable (≥$2 + ≥12%): ${profitable}`);
+    console.log(`❌ Below Threshold: ${unprofitable}`);
+    console.log(`⏱️  Duration: ${duration}s`);
+    console.log('═══════════════════════════════════════════\n');
     
     res.json({ 
       success: true, 
       findings,
       count: findings.length,
+      profitableCount: profitable,
+      unprofitableCount: unprofitable,
       scanDuration: duration,
       stats: rateLimiter.getStats(),
+      debugMode: true,
       timestamp: new Date().toISOString()
     });
     
@@ -384,13 +409,14 @@ async function startServer() {
   await cacheManager.load();
   app.listen(PORT, () => {
     console.log('╔════════════════════════════════════════╗');
-    console.log('║  Product Finder API - FIXED! ✅        ║');
+    console.log('║  Product Finder API - DEBUG MODE 🔍   ║');
     console.log('╚════════════════════════════════════════╝');
     console.log(`🚀 Port: ${PORT}`);
     console.log(`🔑 eBay: ${process.env.EBAY_APP_ID ? 'Connected' : 'Missing'}`);
     console.log(`⏱️  Rate Limit: 3s delay, 80/hour`);
     console.log(`💾 Cache: 24 hours`);
-    console.log(`🎮 Categories: Electronics, Beauty, Home, Gaming\n`);
+    console.log(`🎮 Categories: Electronics, Beauty, Home, Gaming`);
+    console.log(`🔍 DEBUG: Showing ALL products + profit breakdown\n`);
   });
 }
 
