@@ -1,6 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const fs = require('fs').promises;
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -12,18 +14,134 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// =====================================================
+// RATE LIMITER CLASS
+// =====================================================
+class RateLimiter {
+  constructor() {
+    this.callHistory = [];
+    this.lastCallTime = 0;
+    this.config = {
+      DELAY_BETWEEN_CALLS: 3000,  // 3 seconds
+      MAX_CALLS_PER_HOUR: 80,
+      MAX_CALLS_PER_DAY: 4000
+    };
+  }
+
+  async waitIfNeeded() {
+    const now = Date.now();
+    const timeSinceLastCall = now - this.lastCallTime;
+    
+    if (timeSinceLastCall < this.config.DELAY_BETWEEN_CALLS) {
+      const waitTime = this.config.DELAY_BETWEEN_CALLS - timeSinceLastCall;
+      console.log(`   ⏳ Waiting ${Math.round(waitTime/1000)}s...`);
+      await this.sleep(waitTime);
+    }
+    
+    const oneHourAgo = now - (60 * 60 * 1000);
+    this.callHistory = this.callHistory.filter(time => time > oneHourAgo);
+    
+    if (this.callHistory.length >= this.config.MAX_CALLS_PER_HOUR) {
+      const oldestCall = Math.min(...this.callHistory);
+      const waitUntil = oldestCall + (60 * 60 * 1000);
+      const waitTime = waitUntil - now;
+      console.log(`   ⚠️  Hourly limit reached. Waiting ${Math.ceil(waitTime / 1000 / 60)} minutes...`);
+      await this.sleep(waitTime);
+    }
+    
+    this.callHistory.push(now);
+    this.lastCallTime = now;
+  }
+
+  sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  getStats() {
+    const now = Date.now();
+    const oneHourAgo = now - (60 * 60 * 1000);
+    const oneDayAgo = now - (24 * 60 * 60 * 1000);
+    
+    const hourly = this.callHistory.filter(time => time > oneHourAgo).length;
+    const daily = this.callHistory.filter(time => time > oneDayAgo).length;
+    
+    return {
+      hourly: `${hourly}/${this.config.MAX_CALLS_PER_HOUR}`,
+      daily: `${daily}/${this.config.MAX_CALLS_PER_DAY}`,
+      remainingHourly: this.config.MAX_CALLS_PER_HOUR - hourly
+    };
+  }
+}
+
+// =====================================================
+// CACHE MANAGER CLASS
+// =====================================================
+class CacheManager {
+  constructor() {
+    this.cache = {};
+    this.cacheFile = path.join(__dirname, 'ebay_cache.json');
+    this.cacheDuration = 24 * 60 * 60 * 1000;
+  }
+
+  async load() {
+    try {
+      const data = await fs.readFile(this.cacheFile, 'utf8');
+      this.cache = JSON.parse(data);
+      console.log(`📦 Loaded ${Object.keys(this.cache).length} cached items`);
+    } catch (error) {
+      this.cache = {};
+    }
+  }
+
+  async save() {
+    try {
+      await fs.writeFile(this.cacheFile, JSON.stringify(this.cache, null, 2));
+    } catch (error) {
+      console.error('Cache save error:', error.message);
+    }
+  }
+
+  get(keyword) {
+    const entry = this.cache[keyword];
+    if (!entry) return null;
+    
+    const cacheAge = Date.now() - entry.timestamp;
+    if (cacheAge > this.cacheDuration) {
+      delete this.cache[keyword];
+      return null;
+    }
+    
+    const ageMinutes = Math.round(cacheAge / 1000 / 60);
+    console.log(`   ✅ Cache hit (${ageMinutes}m old)`);
+    return entry.data;
+  }
+
+  set(keyword, data) {
+    this.cache[keyword] = {
+      timestamp: Date.now(),
+      data: data
+    };
+  }
+}
+
+const rateLimiter = new RateLimiter();
+const cacheManager = new CacheManager();
+
 // eBay API Search Function
 async function searchEbay(keyword) {
   try {
+    const cachedData = cacheManager.get(keyword);
+    if (cachedData) return cachedData;
+
     const EBAY_APP_ID = process.env.EBAY_APP_ID;
-    
     if (!EBAY_APP_ID) {
-      console.log('⚠️  No eBay API key configured');
+      console.log('⚠️  No eBay API key');
       return null;
     }
 
-    // DEBUG LINE - Shows first 20 chars of App ID
-    console.log(`   🔑 App ID first 20 chars: ${EBAY_APP_ID.substring(0, 20)}...`);
+    await rateLimiter.waitIfNeeded();
+
+    console.log(`   🔍 ${keyword}`);
 
     const params = new URLSearchParams({
       'OPERATION-NAME': 'findCompletedItems',
@@ -43,15 +161,17 @@ async function searchEbay(keyword) {
     const url = `https://svcs.ebay.com/services/search/FindingService/v1?${params}`;
     const response = await axios.get(url, {
       timeout: 10000,
-      headers: {
-        'User-Agent': 'ProductFinderBot/1.0'
-      }
+      headers: { 'User-Agent': 'ProductFinderBot/1.0' }
     });
 
+    if (response.data.errorMessage) {
+      console.error(`   ❌ API Error:`, response.data.errorMessage[0].error[0].message[0]);
+      return null;
+    }
+
     const searchResult = response.data.findCompletedItemsResponse?.[0]?.searchResult?.[0];
-    
     if (!searchResult || searchResult['@count'] === '0') {
-      console.log(`   ℹ️  No results for: ${keyword}`);
+      console.log(`   ℹ️  No results`);
       return null;
     }
 
@@ -60,14 +180,12 @@ async function searchEbay(keyword) {
       .filter(item => item.sellingStatus?.[0]?.currentPrice?.[0]?.__value__)
       .map(item => parseFloat(item.sellingStatus[0].currentPrice[0].__value__));
     
-    if (prices.length === 0) {
-      return null;
-    }
+    if (prices.length === 0) return null;
 
     const avgPrice = prices.reduce((sum, price) => sum + price, 0) / prices.length;
     const soldCount = items.length;
 
-    return {
+    const result = {
       keyword,
       avgPrice: avgPrice.toFixed(2),
       soldCount,
@@ -75,18 +193,25 @@ async function searchEbay(keyword) {
       maxPrice: Math.max(...prices).toFixed(2)
     };
 
+    cacheManager.set(keyword, result);
+    const stats = rateLimiter.getStats();
+    console.log(`   ✅ $${result.avgPrice} avg | API: ${stats.hourly}`);
+
+    return result;
+
   } catch (error) {
     if (error.response) {
-      console.error(`   ❌ eBay API error for "${keyword}": Status ${error.response.status}`);
-      console.error(`   Response: ${JSON.stringify(error.response.data)}`);
+      console.error(`   ❌ Status ${error.response.status}`);
+      if (error.response.data) {
+        console.error(`   ${JSON.stringify(error.response.data)}`);
+      }
     } else {
-      console.error(`   ❌ Error for "${keyword}": ${error.message}`);
+      console.error(`   ❌ ${error.message}`);
     }
     return null;
   }
 }
 
-// Supplier Price Estimator
 function getSupplierPrice(keyword) {
   const estimatedPrices = {
     'phone': 5, 'case': 2, 'cable': 1.5, 'led': 3, 'light': 4,
@@ -104,22 +229,21 @@ function getSupplierPrice(keyword) {
       return (price * (1 + variance)).toFixed(2);
     }
   }
-
   return '5.00';
 }
 
-// Health Check
 app.get('/', (req, res) => {
+  const stats = rateLimiter.getStats();
   res.json({ 
     status: 'running',
-    message: 'Product Finder API is active',
+    message: 'Product Finder API',
     ebayConfigured: !!process.env.EBAY_APP_ID,
-    mode: process.env.EBAY_APP_ID ? 'Live eBay API' : 'Sample Data',
+    rateLimiting: { enabled: true, hourlyUsage: stats.hourly },
+    cache: { enabled: true, entries: Object.keys(cacheManager.cache).length },
     timestamp: new Date().toISOString()
   });
 });
 
-// Product Scan Endpoint
 app.post('/api/scan', async (req, res) => {
   try {
     const keywords = [
@@ -136,19 +260,13 @@ app.post('/api/scan', async (req, res) => {
     ];
     
     const findings = [];
-    
-    console.log('🔍 Starting LIVE eBay product scan...');
-    console.log(`   Using eBay API: ${process.env.EBAY_APP_ID ? 'YES ✅' : 'NO ❌'}`);
+    console.log('\n🔍 Scanning products...');
+    const startTime = Date.now();
     
     for (const keyword of keywords) {
       try {
-        console.log(`   Searching: ${keyword}`);
-        
         const ebayData = await searchEbay(keyword);
-        
-        if (!ebayData) {
-          continue;
-        }
+        if (!ebayData) continue;
         
         const supplierPrice = parseFloat(getSupplierPrice(keyword));
         const sellPrice = parseFloat(ebayData.avgPrice);
@@ -159,8 +277,6 @@ app.post('/api/scan', async (req, res) => {
         const totalCosts = supplierPrice + ebayFee + paymentFee + shipping;
         const profit = sellPrice - totalCosts;
         const margin = (profit / sellPrice) * 100;
-        
-        console.log(`   💰 ${keyword}: $${sellPrice} sell, $${profit.toFixed(2)} profit (${margin.toFixed(1)}%)`);
         
         if (profit >= 5 && margin >= 20) {
           const competition = ebayData.soldCount > 300 ? 'High' : 
@@ -179,42 +295,44 @@ app.post('/api/scan', async (req, res) => {
             aliexpressUrl: `https://www.aliexpress.com/wholesale?SearchText=${encodeURIComponent(keyword)}`,
             timestamp: new Date().toISOString()
           });
-          
-          console.log(`   ✅ Added to findings!`);
-        } else {
-          console.log(`   ⚠️  Below threshold`);
         }
-        
-        // Rate limiting
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
       } catch (error) {
-        console.error(`   ❌ Error with ${keyword}:`, error.message);
+        console.error(`   ❌ ${keyword}: ${error.message}`);
       }
     }
     
-    console.log(`✅ Scan complete! Found ${findings.length} profitable products\n`);
+    await cacheManager.save();
+    const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`\n✅ Done! Found ${findings.length} products (${duration}s)\n`);
     
     res.json({ 
       success: true, 
       findings,
       count: findings.length,
-      source: 'Live eBay API',
+      scanDuration: duration,
+      stats: rateLimiter.getStats(),
       timestamp: new Date().toISOString()
     });
     
   } catch (error) {
     console.error('Scan error:', error);
-    res.status(500).json({ 
-      error: error.message,
-      success: false 
-    });
+    res.status(500).json({ error: error.message, success: false });
   }
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📊 eBay API: ${process.env.EBAY_APP_ID ? 'ACTIVE ✅' : 'Not configured ⚠️'}`);
-  console.log(`💰 Ready to find profitable products with LIVE data!`);
-});
+
+async function startServer() {
+  await cacheManager.load();
+  app.listen(PORT, () => {
+    console.log('╔════════════════════════════════════════╗');
+    console.log('║  Product Finder API - FIXED! ✅        ║');
+    console.log('╚════════════════════════════════════════╝');
+    console.log(`🚀 Port: ${PORT}`);
+    console.log(`🔑 eBay: ${process.env.EBAY_APP_ID ? 'Connected' : 'Missing'}`);
+    console.log(`⏱️  Rate Limit: 3s delay, 80/hour`);
+    console.log(`💾 Cache: 24 hours\n`);
+  });
+}
+
+startServer();
