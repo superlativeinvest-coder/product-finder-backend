@@ -12,15 +12,18 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// eBay API Search Function (built-in)
+// eBay API Search Function
 async function searchEbay(keyword) {
   try {
     const EBAY_APP_ID = process.env.EBAY_APP_ID;
     
     if (!EBAY_APP_ID) {
-      console.log('No eBay API key - using estimates');
+      console.log('⚠️  No eBay API key configured');
       return null;
     }
+
+    // DEBUG LINE - Shows first 20 chars of App ID
+    console.log(`   🔑 App ID first 20 chars: ${EBAY_APP_ID.substring(0, 20)}...`);
 
     const params = new URLSearchParams({
       'OPERATION-NAME': 'findCompletedItems',
@@ -38,11 +41,17 @@ async function searchEbay(keyword) {
     });
 
     const url = `https://svcs.ebay.com/services/search/FindingService/v1?${params}`;
-    const response = await axios.get(url);
+    const response = await axios.get(url, {
+      timeout: 10000,
+      headers: {
+        'User-Agent': 'ProductFinderBot/1.0'
+      }
+    });
 
     const searchResult = response.data.findCompletedItemsResponse?.[0]?.searchResult?.[0];
     
     if (!searchResult || searchResult['@count'] === '0') {
+      console.log(`   ℹ️  No results for: ${keyword}`);
       return null;
     }
 
@@ -67,18 +76,25 @@ async function searchEbay(keyword) {
     };
 
   } catch (error) {
-    console.error(`eBay search error for "${keyword}":`, error.message);
+    if (error.response) {
+      console.error(`   ❌ eBay API error for "${keyword}": Status ${error.response.status}`);
+      console.error(`   Response: ${JSON.stringify(error.response.data)}`);
+    } else {
+      console.error(`   ❌ Error for "${keyword}": ${error.message}`);
+    }
     return null;
   }
 }
 
-// Supplier Price Estimator (built-in)
+// Supplier Price Estimator
 function getSupplierPrice(keyword) {
   const estimatedPrices = {
     'phone': 5, 'case': 2, 'cable': 1.5, 'led': 3, 'light': 4,
     'speaker': 8, 'holder': 2, 'organizer': 3, 'mat': 5,
     'bottle': 3, 'band': 2, 'brush': 1.5, 'sunglasses': 3,
-    'jewelry': 2, 'watch': 8, 'bluetooth': 6, 'charging': 2
+    'jewelry': 2, 'watch': 8, 'bluetooth': 6, 'charging': 2,
+    'ring': 1, 'clip': 0.80, 'mount': 3, 'eyelash': 3.5,
+    'makeup': 1.8, 'blender': 8.5, 'drawer': 2.8, 'resistance': 4.5
   };
 
   const lowerKeyword = keyword.toLowerCase();
@@ -98,6 +114,7 @@ app.get('/', (req, res) => {
     status: 'running',
     message: 'Product Finder API is active',
     ebayConfigured: !!process.env.EBAY_APP_ID,
+    mode: process.env.EBAY_APP_ID ? 'Live eBay API' : 'Sample Data',
     timestamp: new Date().toISOString()
   });
 });
@@ -106,14 +123,22 @@ app.get('/', (req, res) => {
 app.post('/api/scan', async (req, res) => {
   try {
     const keywords = [
-      'phone case', 'led strip lights', 'bluetooth speaker', 
-      'phone holder', 'charging cable', 'car phone mount',
-      'bluetooth headphones', 'phone ring holder'
+      'phone ring holder',
+      'cable organizer clips', 
+      'silicone phone case',
+      'car phone mount',
+      'magnetic eyelashes',
+      'reusable makeup remover pads',
+      'resistance bands set',
+      'led strip lights',
+      'drawer organizer',
+      'portable blender'
     ];
     
     const findings = [];
     
-    console.log('🔍 Starting product scan...');
+    console.log('🔍 Starting LIVE eBay product scan...');
+    console.log(`   Using eBay API: ${process.env.EBAY_APP_ID ? 'YES ✅' : 'NO ❌'}`);
     
     for (const keyword of keywords) {
       try {
@@ -122,7 +147,6 @@ app.post('/api/scan', async (req, res) => {
         const ebayData = await searchEbay(keyword);
         
         if (!ebayData) {
-          console.log(`   ❌ No data for: ${keyword}`);
           continue;
         }
         
@@ -136,9 +160,9 @@ app.post('/api/scan', async (req, res) => {
         const profit = sellPrice - totalCosts;
         const margin = (profit / sellPrice) * 100;
         
-        console.log(`   💰 ${keyword}: Profit $${profit.toFixed(2)} (${margin.toFixed(1)}%)`);
+        console.log(`   💰 ${keyword}: $${sellPrice} sell, $${profit.toFixed(2)} profit (${margin.toFixed(1)}%)`);
         
-        if (profit >= 10 && margin >= 25) {
+        if (profit >= 5 && margin >= 20) {
           const competition = ebayData.soldCount > 300 ? 'High' : 
                             ebayData.soldCount > 100 ? 'Medium' : 'Low';
           
@@ -158,10 +182,10 @@ app.post('/api/scan', async (req, res) => {
           
           console.log(`   ✅ Added to findings!`);
         } else {
-          console.log(`   ⚠️  Below threshold (profit: $${profit.toFixed(2)}, margin: ${margin.toFixed(1)}%)`);
+          console.log(`   ⚠️  Below threshold`);
         }
         
-        // Rate limiting - wait 1 second between requests
+        // Rate limiting
         await new Promise(resolve => setTimeout(resolve, 1000));
         
       } catch (error) {
@@ -175,6 +199,7 @@ app.post('/api/scan', async (req, res) => {
       success: true, 
       findings,
       count: findings.length,
+      source: 'Live eBay API',
       timestamp: new Date().toISOString()
     });
     
@@ -190,6 +215,6 @@ app.post('/api/scan', async (req, res) => {
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📊 eBay API: ${process.env.EBAY_APP_ID ? 'Configured ✅' : 'Not configured ⚠️'}`);
-  console.log(`💰 Ready to find profitable products!`);
+  console.log(`📊 eBay API: ${process.env.EBAY_APP_ID ? 'ACTIVE ✅' : 'Not configured ⚠️'}`);
+  console.log(`💰 Ready to find profitable products with LIVE data!`);
 });
