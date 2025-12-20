@@ -520,6 +520,9 @@ app.post('/api/scan', async (req, res) => {
     for (const keyword of keywords) {
       try {
         const ebayData = await searchEbay(keyword);
+        console.log(`   eBay Data for "${keyword}":`, ebayData ? 'Found ✅' : 'Not Found ❌');
+    
+    if (!ebayData) continue;
         if (!ebayData) continue;
         
         // Get TikTok trending data
