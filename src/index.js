@@ -560,7 +560,7 @@ app.post('/api/scan', async (req, res) => {
         // Use category from product info
         const productCategory = category;
         
-        const meetsThreshold = profit >= 2 && margin >= 12;
+        const meetsThreshold = profit = true;
         const supplierLinks = getSupplierLinks(keyword);
         
         // Record price in history

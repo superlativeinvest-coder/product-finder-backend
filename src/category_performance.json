@@ -1,0 +1,74 @@
+{
+  "Electronics & Accessories": {
+    "totalScanned": 0,
+    "profitableFound": 0,
+    "avgProfit": 0,
+    "avgMargin": 0,
+    "successRate": 0,
+    "lastScanned": null,
+    "score": 50
+  },
+  "Beauty & Personal Care": {
+    "totalScanned": 0,
+    "profitableFound": 0,
+    "avgProfit": 0,
+    "avgMargin": 0,
+    "successRate": 0,
+    "lastScanned": null,
+    "score": 50
+  },
+  "Home & Garden": {
+    "totalScanned": 0,
+    "profitableFound": 0,
+    "avgProfit": 0,
+    "avgMargin": 0,
+    "successRate": 0,
+    "lastScanned": null,
+    "score": 50
+  },
+  "Sports & Outdoors": {
+    "totalScanned": 0,
+    "profitableFound": 0,
+    "avgProfit": 0,
+    "avgMargin": 0,
+    "successRate": 0,
+    "lastScanned": null,
+    "score": 50
+  },
+  "Toys & Hobbies": {
+    "totalScanned": 0,
+    "profitableFound": 0,
+    "avgProfit": 0,
+    "avgMargin": 0,
+    "successRate": 0,
+    "lastScanned": null,
+    "score": 50
+  },
+  "Video Games & Consoles": {
+    "totalScanned": 0,
+    "profitableFound": 0,
+    "avgProfit": 0,
+    "avgMargin": 0,
+    "successRate": 0,
+    "lastScanned": null,
+    "score": 50
+  },
+  "Fashion & Accessories": {
+    "totalScanned": 0,
+    "profitableFound": 0,
+    "avgProfit": 0,
+    "avgMargin": 0,
+    "successRate": 0,
+    "lastScanned": null,
+    "score": 50
+  },
+  "Pet Supplies": {
+    "totalScanned": 0,
+    "profitableFound": 0,
+    "avgProfit": 0,
+    "avgMargin": 0,
+    "successRate": 0,
+    "lastScanned": null,
+    "score": 50
+  }
+}
