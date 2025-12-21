@@ -5,6 +5,14 @@ const fs = require('fs').promises;
 const path = require('path');
 require('dotenv').config();
 
+// Import category scanner
+const {
+  CATEGORY_PRODUCTS,
+  categoryTracker,
+  selectCategoriesToScan,
+  getProductsForCategories
+} = require('./category-scanner');
+
 const app = express();
 
 app.use(cors({
@@ -502,27 +510,28 @@ app.get('/', (req, res) => {
   });
 });
 
-// Main scan endpoint with ALL features
+// Main scan endpoint with ALL features + CATEGORY SCANNER
 app.post('/api/scan', async (req, res) => {
   try {
-    const keywords = [
-      'phone ring holder',
-      'usb cable',
-      'gaming mouse pad',
-      'hair scrunchies',
-      'phone stand'
-    ];
+    // SMART CATEGORY SELECTION
+    const categoriesToScan = selectCategoriesToScan(5); // Top 5 categories
+    console.log('\n🎯 Selected Categories:', categoriesToScan.join(', '));
+    
+    const productsList = getProductsForCategories(categoriesToScan);
+    console.log(`📦 Scanning ${productsList.length} products across ${categoriesToScan.length} categories\n`);
     
     const findings = [];
-    console.log('\n🔍 Scanning with ADVANCED features...');
+    const categoryResults = {};
+    
+    console.log('🔍 Scanning with ADVANCED features...');
     const startTime = Date.now();
     
-    for (const keyword of keywords) {
+    for (const productInfo of productsList) {
+      const keyword = productInfo.keyword;
+      const category = productInfo.category;
+      
       try {
         const ebayData = await searchEbay(keyword);
-        console.log(`   eBay Data for "${keyword}":`, ebayData ? 'Found ✅' : 'Not Found ❌');
-    
-    if (!ebayData) continue;
         if (!ebayData) continue;
         
         // Get TikTok trending data
@@ -548,16 +557,8 @@ app.post('/api/scan', async (req, res) => {
         const competition = ebayData.soldCount > 300 ? 'High' : 
                           ebayData.soldCount > 100 ? 'Medium' : 'Low';
         
-        let category = 'Electronics';
-        if (keyword.includes('makeup') || keyword.includes('eyelash') || keyword.includes('scrunchies') || keyword.includes('brush')) {
-          category = 'Beauty & Fashion';
-        } else if (keyword.includes('drawer') || keyword.includes('organizer') || keyword.includes('resistance') || keyword.includes('band')) {
-          category = 'Home & Living';
-        } else if (keyword.includes('gaming') || keyword.includes('controller') || keyword.includes('console') || 
-                   keyword.includes('ps5') || keyword.includes('nintendo') || keyword.includes('switch') || 
-                   keyword.includes('vr') || keyword.includes('headset')) {
-          category = 'Video Games & Consoles';
-        }
+        // Use category from product info
+        const productCategory = category;
         
         const meetsThreshold = profit >= 2 && margin >= 12;
         const supplierLinks = getSupplierLinks(keyword);
@@ -577,7 +578,7 @@ app.post('/api/scan', async (req, res) => {
         
         findings.push({
           name: keyword.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
-          category,
+          category: productCategory,
           buyPrice: supplierPrice.toFixed(2),
           sellPrice: sellPrice.toFixed(2),
           profit: profit.toFixed(2),
@@ -619,6 +620,12 @@ app.post('/api/scan', async (req, res) => {
           timestamp: new Date().toISOString()
         });
         
+        // Track category results
+        if (!categoryResults[productCategory]) {
+          categoryResults[productCategory] = [];
+        }
+        categoryResults[productCategory].push(findings[findings.length - 1]);
+        
         console.log('');
         
       } catch (error) {
@@ -627,10 +634,24 @@ app.post('/api/scan', async (req, res) => {
     }
     
     await cacheManager.save();
+    
+    // Update category performance
+    for (const [cat, products] of Object.entries(categoryResults)) {
+      categoryTracker.updateCategory(cat, products);
+    }
+    await categoryTracker.save();
+    
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
     
     const profitable = findings.filter(f => f.meetsThreshold === '✅ Yes').length;
     const viral = findings.filter(f => f.tiktok?.isViral).length;
+    
+    // Category breakdown
+    const categoryStats = Object.entries(categoryResults).map(([cat, products]) => ({
+      category: cat,
+      total: products.length,
+      profitable: products.filter(p => p.meetsThreshold === '✅ Yes').length
+    }));
     
     console.log('═══════════════════════════════════════════');
     console.log(`✅ ADVANCED SCAN COMPLETE`);
@@ -638,6 +659,12 @@ app.post('/api/scan', async (req, res) => {
     console.log(`📊 Products: ${findings.length}`);
     console.log(`✅ Profitable: ${profitable}`);
     console.log(`🔥 Viral on TikTok: ${viral}`);
+    console.log(`📂 Categories Scanned: ${categoriesToScan.length}`);
+    console.log('');
+    console.log('📊 Category Breakdown:');
+    categoryStats.forEach(stat => {
+      console.log(`   ${stat.category}: ${stat.profitable}/${stat.total} profitable`);
+    });
     console.log(`⏱️  Duration: ${duration}s`);
     console.log('═══════════════════════════════════════════\n');
     
@@ -647,9 +674,11 @@ app.post('/api/scan', async (req, res) => {
       count: findings.length,
       profitableCount: profitable,
       viralCount: viral,
+      categoriesScanned: categoriesToScan,
+      categoryBreakdown: categoryStats,
       scanDuration: duration,
       stats: rateLimiter.getStats(),
-      features: ['TikTok Trending', 'Social Proof', 'Price History', 'Seller Links'],
+      features: ['TikTok Trending', 'Social Proof', 'Price History', 'Seller Links', 'Smart Categories'],
       timestamp: new Date().toISOString()
     });
     
@@ -705,6 +734,22 @@ app.get('/api/history/:keyword', (req, res) => {
   }
 });
 
+// Get category performance stats
+app.get('/api/categories/performance', (req, res) => {
+  try {
+    const topCategories = categoryTracker.getTopCategories(8);
+    
+    res.json({
+      success: true,
+      categories: topCategories,
+      totalCategories: Object.keys(CATEGORY_PRODUCTS).length,
+      availableProducts: Object.values(CATEGORY_PRODUCTS).flat().length
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message, success: false });
+  }
+});
+
 // =====================================================
 // SERVER STARTUP
 // =====================================================
@@ -712,6 +757,7 @@ const PORT = process.env.PORT || 3001;
 
 async function startServer() {
   await cacheManager.load();
+  await categoryTracker.load();
   app.listen(PORT, () => {
     console.log('╔════════════════════════════════════════════════╗');
     console.log('║     Product Finder PRO - Advanced Edition     ║');
@@ -728,12 +774,14 @@ async function startServer() {
     console.log('   ✅ Social Proof Metrics');
     console.log('   ✅ AI Listing Generator');
     console.log('   ✅ Direct Seller Links');
+    console.log('   ✅ Smart Category Scanner (8 categories)');
     console.log('   ✅ 7 Supplier Sources');
     console.log('');
     console.log('📡 Endpoints:');
     console.log('   POST /api/scan');
     console.log('   POST /api/ai/generate-listing');
     console.log('   GET  /api/history/:keyword');
+    console.log('   GET  /api/categories/performance');
     console.log('');
   });
 }
